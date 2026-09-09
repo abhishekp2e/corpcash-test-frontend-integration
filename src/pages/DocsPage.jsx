@@ -2,12 +2,12 @@ import { Link } from "react-router-dom";
 import { useState } from "react";
 
 const TABS = [
-  { id: "guide", label: "Developer guide" },
-  { id: "packages", label: "Packages" },
-  { id: "store", label: "RBAC Store" },
-  { id: "integration", label: "Integration" },
-  { id: "examples", label: "Examples" },
-  { id: "reference", label: "API & flows" },
+  { id: "guide", label: "Guide" },
+  { id: "core", label: "Core" },
+  { id: "node", label: "Node" },
+  { id: "react", label: "React" },
+  { id: "store", label: "Store" },
+  { id: "stack", label: "This stack" },
 ];
 
 function Code({ children }) {
@@ -17,14 +17,63 @@ function Code({ children }) {
 function GuideSection() {
   return (
     <div className="docs-section">
-      <h2>Developer guide</h2>
+      <h2>Developer integration guide</h2>
       <p className="muted">
-        Condensed from{" "}
-        <code>BACKEND_FRONTEND_INTEGRATION.md</code>. Corpcash RBAC answers:{" "}
-        <strong>can this subject perform this action on this resource?</strong>
+        Condensed from <code>BACKEND_FRONTEND_INTEGRATION.md</code>. Package
+        READMEs are the <strong>source of truth</strong> for APIs. This UI
+        follows the same path: core → node → react → store, then this POC.
       </p>
 
-      <h3>Architecture (golden rules)</h3>
+      <h3>How the four packages fit</h3>
+      <Code>{`@corpcash/rbac-core          decisions only (in memory)
+        ▲
+   ┌────┴────┬────────────────┐
+rbac-node  rbac-store    rbac-react
+HTTP      persist roles   UX gates`}</Code>
+
+      <div className="table-wrap">
+        <table className="policy-table">
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>Does</th>
+              <th>Does not</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <code>rbac-core</code>
+              </td>
+              <td>subject + action + resource → allow/deny</td>
+              <td>HTTP, DB, UI</td>
+            </tr>
+            <tr>
+              <td>
+                <code>rbac-node</code>
+              </td>
+              <td>Express authorize / Nest guard / /rbac</td>
+              <td>Persist config</td>
+            </tr>
+            <tr>
+              <td>
+                <code>rbac-store</code>
+              </td>
+              <td>Roles, inherits, assignments</td>
+              <td>Store PolicyFn / onDecision</td>
+            </tr>
+            <tr>
+              <td>
+                <code>rbac-react</code>
+              </td>
+              <td>Hide/show from permissions[]</td>
+              <td>Enforce security or run policies</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Golden rules</h3>
       <ol className="bullet-list">
         <li>
           <strong>One model</strong> — subject + action + resource (+ context) →
@@ -35,34 +84,38 @@ function GuideSection() {
           route runs <code>authorize()</code>
         </li>
         <li>
-          <strong>Frontend never gets policy source</strong> — only effective
-          permissions and capability results
+          <strong>Frontend never gets policy source</strong> — only{" "}
+          <code>permissions[]</code> and capability results
         </li>
         <li>
-          <strong>Roles/permissions defined once</strong> on the backend —
-          frontend consumes computed output
+          <strong>Persist roles, not policies</strong> — store holds the graph;
+          <code>PolicyFn</code> stays in backend code
         </li>
         <li>
           <strong>Default deny</strong> — missing permission or failed policy =
           403
         </li>
         <li>
-          <strong>Persist roles, not policies</strong> —{" "}
-          <code>@corpcash/rbac-store</code> holds the role graph + subject
-          assignments in Postgres; <code>PolicyFn</code> /{" "}
-          <code>onDecision</code> stay in backend code
+          <strong>Policies only narrow</strong> — they never add a permission.
+          <code>*:*</code> still runs policies
         </li>
       </ol>
 
-      <h3>The six RBAC concepts</h3>
+      <h3>Evaluation order (core)</h3>
+      <Code>{`1. Resolve Subject (id required)
+2. Expand roles (inheritance)
+3. Match resource:action (wallet:*, *:read, *:*)
+4. Run every matching policy — all must pass
+5. Default DENY`}</Code>
+
+      <h3>Concepts</h3>
       <div className="table-wrap">
         <table className="policy-table">
           <thead>
             <tr>
               <th>Concept</th>
-              <th>Question</th>
-              <th>Backend</th>
-              <th>Frontend</th>
+              <th>Meaning</th>
+              <th>This POC</th>
             </tr>
           </thead>
           <tbody>
@@ -70,479 +123,94 @@ function GuideSection() {
               <td>
                 <strong>Subject</strong>
               </td>
-              <td>Who?</td>
               <td>
-                JWT → user → <code>resolveSubject()</code> (store)
+                <code>{`{ id, roles, attributes? }`}</code>
               </td>
               <td>
-                From <code>GET /me/authorization</code>
+                JWT → <code>resolveSubject()</code> (store)
               </td>
             </tr>
             <tr>
               <td>
                 <strong>Role</strong>
               </td>
-              <td>Access profile?</td>
+              <td>permissions + optional inherits</td>
               <td>
-                <code>rbac.config.js</code> seed →{" "}
-                <code>@corpcash/rbac-store</code> (Postgres)
+                Seed <code>rbac.config.js</code> → Postgres
               </td>
-              <td>Displayed; drives permissions</td>
             </tr>
             <tr>
               <td>
                 <strong>Permission</strong>
               </td>
-              <td>Allowed in general?</td>
               <td>
-                <code>resource:action</code> in roles
+                <code>resource:action</code>
               </td>
               <td>
-                <code>permissions[]</code> / <code>can()</code>
+                <code>permissions[]</code> → <code>useCan</code>
               </td>
             </tr>
             <tr>
               <td>
                 <strong>Action</strong>
               </td>
-              <td>What operation?</td>
-              <td>
-                Route handlers (<code>read</code>, <code>approve</code>…)
-              </td>
-              <td>Buttons, API calls</td>
+              <td>read, delete, approve…</td>
+              <td>Route + button</td>
             </tr>
             <tr>
               <td>
                 <strong>Resource</strong>
               </td>
-              <td>On what?</td>
+              <td>Type string or instance object</td>
               <td>
-                Type <code>&quot;wallet&quot;</code> or instance{" "}
-                <code>{`{ type, id, ownerId }`}</code>
+                Type A vs <code>/capabilities</code>
               </td>
-              <td>Capabilities API</td>
             </tr>
             <tr>
               <td>
                 <strong>Policy</strong>
               </td>
-              <td>Extra conditions?</td>
+              <td>Check after a permission match</td>
               <td>
-                <code>registerPolicyFor</code> (backend only)
-              </td>
-              <td>
-                Never in browser — use <code>/capabilities</code>
+                <code>rbac.js</code> only
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <h3>Evaluation order</h3>
-      <Code>{`1. Resolve Subject (from auth)
-2. Resolve Roles → Permissions (with inheritance)
-3. Match permission (wildcards: wallet:*, *:read, *:*)
-4. Evaluate Policy (if registered for that permission)
-5. Default DENY`}</Code>
-
-      <h3>Who owns what</h3>
-      <div className="table-wrap">
-        <table className="policy-table">
-          <thead>
-            <tr>
-              <th>Data / logic</th>
-              <th>Owner</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Role definitions</td>
-              <td>
-                Postgres via <code>@corpcash/rbac-store</code> (seeded from{" "}
-                <code>rbac.config.js</code>)
-              </td>
-            </tr>
-            <tr>
-              <td>Policy functions</td>
-              <td>Backend only — never expose to client</td>
-            </tr>
-            <tr>
-              <td>Subject identity</td>
-              <td>JWT <code>sub</code> → <code>users.id</code></td>
-            </tr>
-            <tr>
-              <td>Subject → roles</td>
-              <td>
-                Postgres <code>rbac_assignments</code> via{" "}
-                <code>resolveSubject</code>
-              </td>
-            </tr>
-            <tr>
-              <td>Effective permissions</td>
-              <td>Backend computes → frontend</td>
-            </tr>
-            <tr>
-              <td>Generic UI visibility</td>
-              <td>
-                Frontend <code>useCan</code> / <code>&lt;Can&gt;</code>
-              </td>
-            </tr>
-            <tr>
-              <td>Instance UI visibility</td>
-              <td>
-                Backend <code>/…/capabilities</code> (policy-aware)
-              </td>
-            </tr>
-            <tr>
-              <td>Security enforcement</td>
-              <td>
-                Backend <code>authorize()</code> on every route
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function PackagesSection() {
-  return (
-    <div className="docs-section">
-      <h2>Library packages</h2>
-      <p className="muted">
-        Installed from npm at <code>^0.3.0</code>:{' '}
-        <code>@corpcash/rbac-core</code>, <code>rbac-node</code>,{' '}
-        <code>rbac-store</code>, <code>rbac-react</code>.
-      </p>
-
-      <article className="docs-card">
-        <h3>
-          <code>@corpcash/rbac-core</code>
-        </h3>
-        <p>
-          Framework-agnostic engine. Used on the <strong>backend</strong>;
-          indirectly on the frontend via <code>rbac-react</code> (permission-only
-          mode).
-        </p>
-        <ul className="bullet-list">
-          <li>
-            <code>new RBAC(config)</code> / role inheritance
-          </li>
-          <li>
-            <code>authorize()</code> / <code>can()</code>
-          </li>
-          <li>
-            <code>registerPolicyFor(resource, action, fn)</code>
-          </li>
-          <li>
-            <code>getEffectivePermissions(subject)</code> for UI bootstrap
-          </li>
-        </ul>
-      </article>
-
-      <article className="docs-card">
-        <h3>
-          <code>@corpcash/rbac-node</code>
-        </h3>
-        <p>Express middleware, NestJS guards, and the admin router.</p>
-        <ul className="bullet-list">
-          <li>
-            <code>createRBAC(config)</code> or store-backed engine
-          </li>
-          <li>
-            <code>
-              createExpressMiddleware({`{ rbac, getSubject }`}) → authorize()
-            </code>
-          </li>
-          <li>
-            <code>createRbacAdminRouter({`{ store, rbac }`}) → /rbac/*</code>{" "}
-            (requires <code>rbac:manage</code>)
-          </li>
-          <li>401 if no subject · 403 if denied</li>
-        </ul>
-      </article>
-
-      <article className="docs-card">
-        <h3>
-          <code>@corpcash/rbac-store</code>
-        </h3>
-        <p>
-          Persists the <strong>serializable</strong> role graph (roles,
-          inheritance, <code>strictRoles</code>, subject → roles) in Postgres /
-          MySQL / Mongo. The decision engine stays in memory.
-        </p>
-        <ul className="bullet-list">
-          <li>
-            <code>postgresStore({`{ pool | connectionString }`})</code>
-          </li>
-          <li>
-            <code>migrate()</code> / <code>seed(config)</code>
-          </li>
-          <li>
-            <code>createRBACFromStore(store)</code> →{" "}
-            <code>@corpcash/rbac-core</code> engine
-          </li>
-          <li>
-            Admin writes call <code>reloadFromStore</code> automatically
-          </li>
-        </ul>
-        <p className="muted small">
-          Policies are <strong>not</strong> stored — register them in code after
-          loading the engine.
-        </p>
-      </article>
-
-      <article className="docs-card">
-        <h3>
-          <code>@corpcash/rbac-react</code>
-        </h3>
-        <p>
-          Client adapter: <code>RBACProvider</code>, <code>Can</code>,{" "}
-          <code>useCan</code>, <code>RequirePermission</code>,{" "}
-          <code>RequireRole</code>.
-        </p>
-        <p className="muted small">
-          Uses <strong>permission-only mode</strong> — pass expanded{" "}
-          <code>permissions[]</code> from the API, not full role config or
-          policies. UX only.
-        </p>
-      </article>
-
-      <h3>Install</h3>
+      <h3>Install (^0.3.0 from npm)</h3>
       <Code>{`# Backend
 npm install @corpcash/rbac-core@^0.3.0 @corpcash/rbac-node@^0.3.0 @corpcash/rbac-store@^0.3.0 pg
 
-# Frontend — UX helpers only (do not depend on core/store directly)
-npm install @corpcash/rbac-react@^0.3.0`}</Code>
+# Frontend
+npm install @corpcash/rbac-react@^0.3.0 @corpcash/rbac-core@^0.3.0 react`}</Code>
     </div>
   );
 }
 
-function StoreSection() {
+function CoreSection() {
   return (
     <div className="docs-section">
-      <h2>@corpcash/rbac-store flow</h2>
+      <h2>@corpcash/rbac-core</h2>
       <p className="muted">
-        Guide §3 store package + this POC’s Postgres wiring (
-        <code>DATABASE_URL</code>).
+        Source of truth: package README. Framework-agnostic engine. Node,
+        store, and React are adapters over this.
       </p>
 
-      <h3>What lives where</h3>
-      <div className="table-wrap">
-        <table className="policy-table">
-          <thead>
-            <tr>
-              <th>In the database</th>
-              <th>Stays in application code</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Role names, permissions, inherits</td>
-              <td>
-                <code>PolicyFn</code> (<code>registerPolicyFor</code>)
-              </td>
-            </tr>
-            <tr>
-              <td>
-                <code>strictRoles</code>
-              </td>
-              <td>
-                <code>onDecision</code>
-              </td>
-            </tr>
-            <tr>
-              <td>Subject id → role names</td>
-              <td>
-                JWT auth, <code>getSubject</code>, <code>getResource</code>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <h3>Flow</h3>
+      <Code>{`1. new RBAC({ roles }) or new RBAC({ permissions })
+2. rbac.registerPolicyFor(...)
+3. rbac.authorize({ subject, action, resource, context? })
+4. UI list = rbac.getEffectivePermissions(subject)
+5. After role-graph change: rbac.reload(nextConfig)`}</Code>
 
-      <h3>Boot sequence (this POC)</h3>
-      <Code>{`1. postgresStore({ pool })           // share app DATABASE_URL pool
-2. store.migrate()                   // rbac_roles, rbac_assignments, rbac_settings
-3. store.seed({ roles })             // from rbac.config.js (no-op if roles exist)
-4. createRBACFromStore(store)        // in-memory @corpcash/rbac-core engine
-5. registerPolicyFor(...)            // policies stay in code
-6. createRbacAdminRouter(...)        // mount at /rbac
-7. On register: store.setRolesForSubject(userId, [role])`}</Code>
-
-      <h3>Postgres tables</h3>
-      <ul className="bullet-list">
-        <li>
-          <code>rbac_roles</code> — name, permissions, inherits
-        </li>
-        <li>
-          <code>rbac_assignments</code> — subject_id ↔ role_name
-        </li>
-        <li>
-          <code>rbac_settings</code> — strictRoles
-        </li>
-      </ul>
-
-      <h3>Admin API (requires rbac:manage)</h3>
-      <div className="table-wrap">
-        <table className="policy-table">
-          <thead>
-            <tr>
-              <th>Method</th>
-              <th>Path</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>GET / POST</td>
-              <td>
-                <code>/rbac/roles</code>
-              </td>
-            </tr>
-            <tr>
-              <td>GET / PUT / DELETE</td>
-              <td>
-                <code>/rbac/roles/:name</code>
-              </td>
-            </tr>
-            <tr>
-              <td>GET / PUT / POST</td>
-              <td>
-                <code>/rbac/subjects/:id/roles</code>
-              </td>
-            </tr>
-            <tr>
-              <td>DELETE</td>
-              <td>
-                <code>/rbac/subjects/:id/roles/:role</code>
-              </td>
-            </tr>
-            <tr>
-              <td>GET / PATCH</td>
-              <td>
-                <code>/rbac/settings</code>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
       <p className="muted small">
-        After a role-graph write, the admin router calls{" "}
-        <code>reloadFromStore(rbac, store)</code>. Assignment changes apply on
-        the next request without a reload. Use the dashboard{" "}
-        <strong>Interactive Admin API</strong> panel (admin users) to try these
-        live.
+        Role mode and permission-only mode cannot be combined. Frontend uses
+        permission-only. <code>onDecision</code> exceptions are swallowed.
       </p>
 
-      <h3>Frontend after store edits</h3>
-      <ol className="bullet-list">
-        <li>
-          Admin mutates roles via <code>/rbac/*</code>
-        </li>
-        <li>
-          Affected users call <code>GET /me/authorization</code> again (Refresh
-          session)
-        </li>
-        <li>
-          <code>RBACProvider</code> receives new <code>permissions[]</code> —
-          UI gates update
-        </li>
-      </ol>
-    </div>
-  );
-}
-
-function IntegrationSection() {
-  return (
-    <div className="docs-section">
-      <h2>Integration guide</h2>
-      <p className="muted">
-        Guide §4–5 adapted to this POC. Auth is <strong>JWT Bearer</strong>;
-        roles persist via <code>@corpcash/rbac-store</code> + Postgres.
-      </p>
-
-      <h3>Repo layout (this stack)</h3>
-      <Code>{`rback-check/
-├── backend-integration/     # Express :3000  (@corpcash/rbac-core/node/store ^0.3.0)
-│   ├── rbac.config.js       # seed catalog (RESOURCES, ACTIONS, roles)
-│   ├── rbac.js              # store migrate/seed + policies + admin router
-│   ├── auth.js              # JWT register/login
-│   ├── db.js                # DATABASE_URL pool
-│   └── index.js             # routes + /rbac mount
-└── frontend-integration/    # React :5173  (@corpcash/rbac-react ^0.3.0)
-    ├── AuthContext.jsx      # GET /me/authorization
-    ├── components/AdminApiPanel.jsx
-    └── pages/DocsPage.jsx`}</Code>
-
-      <h3>1. Seed catalog → store</h3>
-      <p>
-        <code>rbac.config.js</code> defines the initial graph. On boot it is
-        seeded into Postgres (idempotent). Live edits go through{" "}
-        <code>/rbac</code>, not the file.
-      </p>
-      <Code>{`const store = postgresStore({ pool });
-await store.migrate();
-await store.seed({ roles: rbacConfig.roles }); // no-op if roles exist
-const rbac = await createRBACFromStore(store, { onDecision });
-rbac.registerPolicyFor("wallet", "delete", ownershipPolicy);`}</Code>
-
-      <h3>2. Subject: JWT → store roles</h3>
-      <Code>{`// loadUser after JWT verify
-const user = await findUserById(claims.sub);
-req.subject = await resolveSubject(user);
-// → { id, roles: store.getRolesForSubject(id), attributes }
-
-app.use("/rbac", requireAuth, loadUser, createRbacAdminRouter({
-  store, rbac, getSubject: (req) => req.subject,
-}));`}</Code>
-
-      <h3>3. Frontend bootstrap</h3>
-      <Code>{`AuthProvider → GET /me/authorization (Bearer)
-         ← subject, roles, permissions, capabilities
-ProtectedRoute → RBACProvider(subject, permissions)
-UI ← useCan / Can / RequireRole  (+ AdminApiPanel for /rbac)`}</Code>
-
-      <h3>4. Two types of frontend authorization</h3>
-      <article className="docs-card">
-        <h3>Type A — Generic UI (permission-only)</h3>
-        <Code>{`<Can resource="wallet" action="create">
-  <button>Create Wallet</button>
-</Can>
-const canDeploy = useCan("contract", "deploy");`}</Code>
-      </article>
-
-      <article className="docs-card">
-        <h3>Type B — Instance-level UI (policy-aware)</h3>
-        <p>
-          Use backend <code>/…/capabilities</code> for ownership/org/amount —
-          never reimplement policies in React.
-        </p>
-      </article>
-
-      <h3>Local run</h3>
-      <Code>{`# Terminal 1
-cd rback-check/backend-integration
-cp -n .env.example .env   # DATABASE_URL=postgresql://postgres:root@localhost:5432/postgres
-npm install && npm run dev   # :3000
-
-# Terminal 2
-cd rback-check/frontend-integration
-cp -n .env.example .env   # VITE_API_URL=http://localhost:3000
-npm install && npm run dev   # :5173
-
-# UI calls VITE_API_URL directly (CORS). Vite /api proxy is unused.`}</Code>
-    </div>
-  );
-}
-
-function ExamplesSection() {
-  return (
-    <div className="docs-section">
-      <h2>Sample code & examples</h2>
-      <p className="muted">From the guide §3–5 and this POC.</p>
-
-      <h3>Core — authorize + ownership policy</h3>
+      <h3>Construct + decide</h3>
       <Code>{`import { RBAC } from "@corpcash/rbac-core";
 
 const rbac = new RBAC({
@@ -554,38 +222,83 @@ const rbac = new RBAC({
     },
     admin: { permissions: ["*:*"] },
   },
+  strictRoles: false,
+  onDecision: ({ request, result }) => console.warn(result),
 });
 
 rbac.registerPolicyFor("wallet", "delete", ({ subject, resource }) => {
-  return typeof resource === "object" && subject.id === resource.ownerId;
+  if (typeof resource !== "object" || !resource) return false;
+  return subject.id === String(resource.ownerId);
 });
 
 rbac.authorize({
-  subject: { id: "dev-1", roles: ["developer"] },
+  subject: { id: "u1", roles: ["developer"] },
   action: "delete",
-  resource: { type: "wallet", id: "wallet_1", ownerId: "dev-1" },
+  resource: { type: "wallet", id: "w1", ownerId: "u1" },
 });
-// → { allowed: true, reason: "AUTHORIZED", matchedPermission: "wallet:delete" }`}</Code>
+// { allowed, reason, matchedPermission?, ignoredRoles? }
+// reason: AUTHORIZED | MISSING_PERMISSION | POLICY_DENIED | NO_SUBJECT`}</Code>
 
-      <h3>Store — Postgres persist + admin router</h3>
-      <Code>{`import { createRBACFromStore } from "@corpcash/rbac-store";
-import { postgresStore } from "@corpcash/rbac-store/postgres";
-import { createRbacAdminRouter } from "@corpcash/rbac-node/express";
+      <h3>Methods</h3>
+      <ul className="bullet-list">
+        <li>
+          <code>authorize</code> / <code>authorizeAsync</code> — HTTP adapters
+          use async (await policies)
+        </li>
+        <li>
+          <code>can</code> / <code>canAsync</code> — boolean
+        </li>
+        <li>
+          <code>registerPolicyFor(resource, action, fn)</code> /{" "}
+          <code>registerPolicy(key, fn)</code>
+        </li>
+        <li>
+          <code>reload</code> — keeps policies + onDecision; store wraps this
+          as <code>reloadFromStore</code>
+        </li>
+        <li>
+          <code>getEffectivePermissions</code> — expands inheritance,{" "}
+          <strong>not</strong> policies
+        </li>
+        <li>
+          <code>getEffectiveRoles</code> / <code>hasRole</code> —
+          inheritance-aware (backend engine)
+        </li>
+      </ul>
 
-const store = postgresStore({ pool }); // or { connectionString: DATABASE_URL }
-await store.migrate();
-await store.seed({ roles: rbacConfig.roles });
+      <h3>Policy matching</h3>
+      <p>
+        Keys, most specific first: <code>wallet:delete</code>,{" "}
+        <code>wallet:*</code>, <code>*:delete</code>, <code>*:*</code>. Every
+        match must return <code>true</code>. Async policy + sync authorize
+        throws <code>AsyncPolicyError</code>.
+      </p>
+    </div>
+  );
+}
 
-const rbac = await createRBACFromStore(store, { onDecision });
-rbac.registerPolicyFor("wallet", "delete", ownershipPolicy);
+function NodeSection() {
+  return (
+    <div className="docs-section">
+      <h2>@corpcash/rbac-node</h2>
+      <p className="muted">
+        Source of truth: package README. Express middleware, NestJS guards,
+        admin router. This POC is Express only.
+      </p>
 
-app.use("/rbac", requireAuth, loadUser, createRbacAdminRouter({
-  store,
-  rbac,
-  getSubject: (req) => req.subject,
-}));`}</Code>
+      <h3>Flow</h3>
+      <Code>{`1. createRBAC({ roles })  or  createRBACFromStore(store)
+2. rbac.registerPolicyFor(...)
+3. authorize() on every mutating route
+4. GET /me/authorization
+5. Optional: mount /rbac (needs rbac:manage)
 
-      <h3>Node — Express route guards</h3>
+request → getSubject → authorizeAsync
+        → 401 if no subject
+        → 403 if denied (reason in body)
+        → next() if allowed`}</Code>
+
+      <h3>Express</h3>
       <Code>{`import { createExpressMiddleware } from "@corpcash/rbac-node/express";
 
 const { authorize } = createExpressMiddleware({
@@ -602,30 +315,79 @@ app.delete(
     action: "delete",
     getResource: (req) => ({
       type: "wallet",
-      id: req.params.id,
+      id: req.wallet.id,
       ownerId: req.wallet.ownerId,
     }),
   }),
   deleteWallet,
 );`}</Code>
 
-      <h3>React — RBACProvider (permission-only)</h3>
-      <Code>{`import { RBACProvider, Can, useCan } from "@corpcash/rbac-react";
+      <ul className="bullet-list">
+        <li>
+          <code>authorize("wallet", "read")</code> — type-level
+        </li>
+        <li>
+          <code>getResource</code> — instance for policies; route{" "}
+          <code>resource</code> always wins
+        </li>
+        <li>
+          Default 403:{" "}
+          <code>{`{ statusCode: 403, error: "Forbidden", reason }`}</code>
+        </li>
+      </ul>
 
-// permissions from GET /me/authorization — not full role config
+      <h3>Admin mount</h3>
+      <Code>{`import { createRbacAdminRouter } from "@corpcash/rbac-node/express";
+
+app.use("/rbac", requireAuth, loadUser, createRbacAdminRouter({
+  store, rbac, getSubject: (req) => req.subject,
+}));`}</Code>
+      <p className="muted small">
+        If <code>getSubject</code> is omitted, the library reads{" "}
+        <code>x-user-id</code>. This POC always passes the JWT subject. Route
+        table + curls: store README.
+      </p>
+
+      <h3>NestJS</h3>
+      <p className="muted small">
+        Not used here. See node README: <code>RbacModule.forRoot</code> /{" "}
+        <code>forRootAsync</code>,{" "}
+        <code>{`{ provide: APP_GUARD, useExisting: RbacGuard }`}</code>,{" "}
+        <code>@RequirePermission</code>, <code>@PublicRoute</code>,{" "}
+        <code>RbacAdminModule.register()</code>.
+      </p>
+    </div>
+  );
+}
+
+function ReactPkgSection() {
+  return (
+    <div className="docs-section">
+      <h2>@corpcash/rbac-react</h2>
+      <p className="muted">
+        Source of truth: package README. Frontend RBAC is <strong>UX only</strong>
+        . The API still authorizes every request.
+      </p>
+
+      <h3>Flow</h3>
+      <Code>{`Login → GET /me/authorization → { subject, roles, permissions }
+     → <RBACProvider subject permissions>
+           ├── useCan / Can / RequirePermission   generic (Type A)
+           └── GET /wallets/:id/capabilities      instance (Type B)`}</Code>
+
+      <p>
+        Pass <code>permissions</code>, not the role graph. Inheritance is
+        expanded on the server. Policies are <strong>not</strong> applied.
+        Treat the list as an upper bound.
+      </p>
+
+      <h3>Bootstrap (this app)</h3>
+      <Code>{`import { RBACProvider, Can, useCan, RequireRole } from "@corpcash/rbac-react";
+
+// ProtectedRoute after AuthContext loads /me/authorization
 <RBACProvider subject={subject} permissions={permissions}>
   <Can resource="wallet" action="create">
     <CreateButton />
-  </Can>
-</RBACProvider>
-
-const canDeploy = useCan("contract", "deploy");`}</Code>
-
-      <h3>This POC — @corpcash/rbac-react</h3>
-      <Code>{`// ProtectedRoute mounts RBACProvider after /me/authorization loads
-<RBACProvider subject={subject} permissions={permissions}>
-  <Can resource="wallet" action="create">
-    <CreateWalletPanel />
   </Can>
   <RequireRole role="developer" fallback={<AccessDeniedPage />}>
     <DeveloperWorkspace />
@@ -634,146 +396,421 @@ const canDeploy = useCan("contract", "deploy");`}</Code>
 
 const canDeploy = useCan("contract", "deploy");`}</Code>
 
-      <h3>Transaction approve policy (guide)</h3>
-      <Code>{`rbac.registerPolicyFor("transaction", "approve", ({ subject, resource }) => {
-  if (subject.attributes.organizationId !== resource.organizationId) return false;
-  if (resource.amount > 100_000) return subject.roles.includes("admin");
-  return true;
-});`}</Code>
+      <h3>Generic vs instance</h3>
+      <div className="table-wrap">
+        <table className="policy-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Type A — generic</th>
+              <th>Type B — instance</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>When</td>
+              <td>Not tied to one record</td>
+              <td>Ownership / org / amount</td>
+            </tr>
+            <tr>
+              <td>Data</td>
+              <td>
+                <code>permissions[]</code>
+              </td>
+              <td>
+                <code>GET /…/capabilities</code>
+              </td>
+            </tr>
+            <tr>
+              <td>Hook</td>
+              <td>
+                <code>useCan("wallet", "delete")</code>
+              </td>
+              <td>
+                <code>caps.delete.allowed</code>
+              </td>
+            </tr>
+            <tr>
+              <td>Policy</td>
+              <td>Not evaluated</td>
+              <td>Evaluated on the backend</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Exports</h3>
+      <ul className="bullet-list">
+        <li>
+          <code>RBACProvider</code> — must wrap hooks; prefers{" "}
+          <code>permissions</code> over <code>roles</code>
+        </li>
+        <li>
+          <code>useRBAC()</code> — <code>can</code>, <code>subject</code>,{" "}
+          <code>invalidPermissions</code>
+        </li>
+        <li>
+          <code>useCan(resource, action, instance?)</code> — in
+          permission-only mode the instance still does not run policies
+        </li>
+        <li>
+          <code>useRole</code> / <code>RequireRole</code> — permission-only:
+          checks <code>subject.roles</code> only (no client inheritance)
+        </li>
+        <li>
+          <code>Can</code> / <code>RequirePermission</code>
+        </li>
+      </ul>
     </div>
   );
 }
 
-function ReferenceSection() {
+function StoreSection() {
   return (
     <div className="docs-section">
-      <h2>API & end-to-end flows</h2>
-      <p className="muted">Guide §4.6 and §6, plus this POC’s auth endpoints.</p>
+      <h2>@corpcash/rbac-store</h2>
+      <p className="muted">
+        Source of truth: package README. Persists the serializable graph. The
+        engine stays in memory.
+      </p>
 
-      <h3>GET /me/authorization</h3>
-      <p>Primary frontend bootstrap contract.</p>
-      <Code>{`// This POC (Bearer JWT)
-Authorization: Bearer <token>
+      <h3>What lives where</h3>
+      <div className="table-wrap">
+        <table className="policy-table">
+          <thead>
+            <tr>
+              <th>In the database</th>
+              <th>Stays in code</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Role names, permissions, inherits</td>
+              <td>
+                <code>PolicyFn</code>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>strictRoles</code>
+              </td>
+              <td>
+                <code>onDecision</code>
+              </td>
+            </tr>
+            <tr>
+              <td>Subject id → role names</td>
+              <td>
+                JWT, <code>getSubject</code>, <code>getResource</code>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-{
-  "subject": { "id": "2", "roles": ["developer"], "attributes": { … } },
-  "roles": ["developer"],
-  "permissions": ["wallet:create", "wallet:read", …],
-  "capabilities": {
-    "wallet:create": true,
-    "wallet:delete": false,
-    "dashboard:read": true
-  },
-  "user": { "id": 2, "username": "demo", "role": "developer" }
-}`}</Code>
+      <h3>Flow</h3>
+      <Code>{`1. postgresStore({ pool | connectionString })
+2. await store.migrate()     // tables only
+3. optional store.seed(...)  // no-op if any role exists
+4. createRBACFromStore(store)
+5. registerPolicyFor(...)
+6. Writes: store methods  OR  POST /rbac/roles (same tables)`}</Code>
 
-      <h3>Instance capabilities (guide pattern)</h3>
-      <Code>{`GET /wallets/wallet_2/capabilities   # ownerId is "2"
-Authorization: Bearer <jwt>
+      <p className="muted small">
+        Role-graph writes need <code>reloadFromStore</code> (admin router does
+        this). Assignment writes do not — next <code>getRolesForSubject</code>{" "}
+        sees them.
+      </p>
 
-{
-  "resource": { "type": "wallet", "id": "wallet_2", "ownerId": "2" },
-  "capabilities": {
-    "read":   { "allowed": true,  "reason": "AUTHORIZED", "matchedPermission": "wallet:read" },
-    "delete": { "allowed": false, "reason": "POLICY_DENIED", "matchedPermission": "wallet:delete" }
-  }
-}`}</Code>
+      <h3>This POC boot</h3>
+      <Code>{`const store = postgresStore({ pool });
+await store.migrate();
+await store.seed({ roles: rbacConfig.roles });
+const rbac = await createRBACFromStore(store, { onDecision });
+rbac.registerPolicyFor("wallet", "delete", ownershipPolicy);
+// register: store.setRolesForSubject(userId, [role])`}</Code>
 
-      <h3>Auth + resource + admin endpoints (this POC, :3000)</h3>
+      <h3>Tables (prefix rbac_)</h3>
       <ul className="bullet-list">
         <li>
-          <code>POST /auth/register</code> / <code>POST /auth/login</code> —
-          Bearer JWT; roles written/read from the store
+          <code>rbac_roles</code> — name, permissions, inherits
         </li>
         <li>
-          <code>GET /auth/roles</code> — <code>store.listRoles()</code>
+          <code>rbac_assignments</code> — subject_id ↔ role_name
         </li>
         <li>
-          <code>GET /me/authorization</code> — Type A capabilities
+          <code>rbac_settings</code> — strictRoles
+        </li>
+      </ul>
+
+      <h3>Store methods (reload after *)</h3>
+      <ul className="bullet-list">
+        <li>
+          <code>upsertRole*</code> / <code>deleteRole*</code> /{" "}
+          <code>updateSettings*</code> / <code>seed</code> (if it inserted)
         </li>
         <li>
-          <code>GET /dashboard</code> —{" "}
-          <code>authorize(dashboard, read)</code>
+          <code>setRolesForSubject</code> / <code>assignRole</code> /{" "}
+          <code>revokeRole</code> — no reload
+        </li>
+      </ul>
+
+      <h3>Admin API (rbac:manage or *:*) </h3>
+      <div className="table-wrap">
+        <table className="policy-table">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Path</th>
+              <th>Reloads</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>GET / POST</td>
+              <td>
+                <code>/rbac/roles</code>
+              </td>
+              <td>POST yes</td>
+            </tr>
+            <tr>
+              <td>GET / PUT / DELETE</td>
+              <td>
+                <code>/rbac/roles/:name</code>
+              </td>
+              <td>PUT/DELETE yes</td>
+            </tr>
+            <tr>
+              <td>GET / PUT / POST</td>
+              <td>
+                <code>/rbac/subjects/:id/roles</code>
+              </td>
+              <td>no</td>
+            </tr>
+            <tr>
+              <td>DELETE</td>
+              <td>
+                <code>/rbac/subjects/:id/roles/:role</code>
+              </td>
+              <td>no</td>
+            </tr>
+            <tr>
+              <td>GET / PATCH</td>
+              <td>
+                <code>/rbac/settings</code>
+              </td>
+              <td>PATCH yes</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small">
+        After assignment writes, refresh <code>GET /me/authorization</code>.
+        Use the dashboard Interactive Admin API (admin users).
+      </p>
+    </div>
+  );
+}
+
+function StackSection() {
+  return (
+    <div className="docs-section">
+      <h2>This stack (POC contract)</h2>
+      <p className="muted">
+        Express <strong>:3000</strong> · React <strong>:5173</strong> · Bearer
+        JWT · Postgres store. Do not invent x-user-id or port 4000.
+      </p>
+
+      <h3>Local run</h3>
+      <Code>{`# Terminal 1
+cd backend-integration
+cp -n .env.example .env
+# DATABASE_URL=postgresql://postgres:root@localhost:5432/postgres
+npm install && npm run dev   # :3000
+
+# Terminal 2
+cd frontend-integration
+cp -n .env.example .env      # VITE_API_URL=http://localhost:3000
+npm install && npm run dev   # :5173
+
+# UI calls VITE_API_URL directly (CORS). Vite /api proxy is unused.`}</Code>
+
+      <h3>Subject resolution</h3>
+      <Code>{`Bearer JWT { sub, username }
+  → users row
+  → store.getRolesForSubject(id)
+  → fallback users.role if empty
+  → { id, roles, attributes: { username, organizationId: "org_1" } }`}</Code>
+      <p className="muted small">
+        JWT is identity only. <code>users.role</code> is a registration
+        snapshot — UI and authorize use <code>subject.roles</code>.
+      </p>
+
+      <h3>Seeded roles</h3>
+      <div className="table-wrap">
+        <table className="policy-table">
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Direct permissions</th>
+              <th>Inherits</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>viewer</td>
+              <td>wallet:read, transaction:read, dashboard:read</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td>developer</td>
+              <td>wallet create/update, contract read/deploy</td>
+              <td>viewer</td>
+            </tr>
+            <tr>
+              <td>manager</td>
+              <td>transaction:approve, wallet:delete, user:read, report:read</td>
+              <td>developer</td>
+            </tr>
+            <tr>
+              <td>admin</td>
+              <td>
+                <code>*:*</code>
+              </td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Policies (this POC)</h3>
+      <ul className="bullet-list">
+        <li>
+          <code>wallet:delete</code> — ownerId === subject.id when resource is
+          an object; type-string resource returns true (Type A)
         </li>
         <li>
-          <code>GET/POST /wallets</code>,{" "}
-          <code>DELETE /wallets/:id</code>,{" "}
+          <code>transaction:approve</code> — org must match; amount &gt; 100000
+          requires admin. <code>tx_3</code> (org_2) denied for everyone
+        </li>
+      </ul>
+
+      <h3>GET /me/authorization</h3>
+      <Code>{`Authorization: Bearer <token>
+
+{
+  "subject": { "id": "1", "roles": ["manager"], "attributes": { "organizationId": "org_1" } },
+  "roles": ["manager"],
+  "permissions": ["wallet:read", "transaction:approve", …],
+  "capabilities": { "wallet:delete": true, "rbac:manage": false },
+  "user": { "id": 1, "username": "alice", "role": "manager", "roles": ["manager"] }
+}`}</Code>
+
+      <h3>Endpoints (:3000)</h3>
+      <ul className="bullet-list">
+        <li>
+          <code>POST /auth/register</code> · <code>POST /auth/login</code> ·{" "}
+          <code>GET /auth/roles</code>
+        </li>
+        <li>
+          <code>GET /me/authorization</code> · <code>GET /dashboard</code>
+        </li>
+        <li>
+          <code>GET/POST /wallets</code> · <code>DELETE /wallets/:id</code> ·{" "}
           <code>GET /wallets/:id/capabilities</code>
         </li>
         <li>
-          <code>GET /transactions</code>,{" "}
-          <code>POST /transactions/:id/approve</code>,{" "}
+          <code>GET /transactions</code> ·{" "}
+          <code>POST /transactions/:id/approve</code> ·{" "}
           <code>GET /transactions/:id/capabilities</code>
         </li>
         <li>
           <code>POST /contracts/deploy</code>
         </li>
         <li>
-          <code>POST /rbac/authorize</code> — debug (any authenticated user)
+          <code>POST /rbac/authorize</code> — debug, any authenticated user
+          (mounted before the admin router)
         </li>
         <li>
-          <code>/rbac/*</code> — store admin API (<code>rbac:manage</code>)
+          <code>/rbac/*</code> — store admin API
         </li>
       </ul>
 
-      <h3>Flow A — permission only</h3>
-      <Code>{`GET /wallets  +  authorize(wallet, read)
-→ ALLOW if subject has wallet:read
-→ 403 if missing permission`}</Code>
+      <p className="muted small">
+        Seed: <code>wallet_1.ownerId = &quot;1&quot;</code>,{" "}
+        <code>wallet_2.ownerId = &quot;2&quot;</code>. tx_1 50k org_1 · tx_2
+        500k org_1 (admin only) · tx_3 org_2 (nobody).
+      </p>
 
-      <h3>Flow B — permission + policy</h3>
+      <h3>Flow — permission + policy</h3>
       <Code>{`DELETE /wallets/wallet_1
-1. Permission wallet:delete ✓
-2. Policy ownerId === subject.id ?
+1. Permission wallet:delete
+2. Policy ownerId === subject.id
    → ALLOW or 403 POLICY_DENIED
 
-Even if the UI shows Delete, the API re-checks — never trust the client.`}</Code>
+Type A may show Delete; Type B /capabilities tells the truth.
+The mutating route always re-checks.`}</Code>
 
-      <h3>Flow D — delete button visibility</h3>
-      <ol className="bullet-list">
-        <li>Permission check → show delete UI (Type A)</li>
-        <li>
-          Per row: <code>GET /wallets/:id/capabilities</code> →{" "}
-          <code>delete.allowed</code> (Type B)
-        </li>
-        <li>
-          Click Delete → <code>DELETE /wallets/:id</code> → backend re-authorizes
-        </li>
-      </ol>
-
-      <h3>Production checklist (guide §7)</h3>
-      <ul className="bullet-list">
-        <li>
-          Auth is already JWT Bearer; keep roles in the store, not in the token
-        </li>
-        <li>
-          Role definitions: <code>@corpcash/rbac-store</code> (Postgres) —
-          seeded from <code>rbac.config.js</code>
-        </li>
-        <li>Policies: backend code only — never persist</li>
-        <li>
-          Live role edits: <code>/rbac</code> then refresh{" "}
-          <code>/me/authorization</code>
-        </li>
-        <li>
-          Frontend: <code>/me/authorization</code> after login
-        </li>
-        <li>
-          Instance UI: <code>/resource/:id/capabilities</code>
-        </li>
-        <li>Treat all frontend checks as UX hints</li>
-      </ul>
+      <h3>Who owns what</h3>
+      <div className="table-wrap">
+        <table className="policy-table">
+          <thead>
+            <tr>
+              <th>Data / logic</th>
+              <th>Owner</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Engine / HTTP / UI / persist APIs</td>
+              <td>core / node / react / store READMEs</td>
+            </tr>
+            <tr>
+              <td>Role rows</td>
+              <td>Postgres rbac_roles</td>
+            </tr>
+            <tr>
+              <td>Subject → roles</td>
+              <td>Postgres rbac_assignments</td>
+            </tr>
+            <tr>
+              <td>Policies</td>
+              <td>
+                <code>rbac.js</code>
+              </td>
+            </tr>
+            <tr>
+              <td>Generic UI</td>
+              <td>
+                <code>useCan</code> / <code>&lt;Can&gt;</code>
+              </td>
+            </tr>
+            <tr>
+              <td>Instance UI</td>
+              <td>
+                <code>/…/capabilities</code>
+              </td>
+            </tr>
+            <tr>
+              <td>Security</td>
+              <td>
+                Backend <code>authorize()</code>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
 const SECTIONS = {
   guide: GuideSection,
-  packages: PackagesSection,
+  core: CoreSection,
+  node: NodeSection,
+  react: ReactPkgSection,
   store: StoreSection,
-  integration: IntegrationSection,
-  examples: ExamplesSection,
-  reference: ReferenceSection,
+  stack: StackSection,
 };
 
 export default function DocsPage() {
@@ -787,9 +824,8 @@ export default function DocsPage() {
           <p className="eyebrow">Corpcash RBAC</p>
           <h1>Documentation</h1>
           <p className="muted">
-            Aligned with <code>BACKEND_FRONTEND_INTEGRATION.md</code> — including{" "}
-            <code>@corpcash/rbac-store</code> Postgres persistence and the{" "}
-            <code>/rbac</code> admin API.
+            Same path as <code>BACKEND_FRONTEND_INTEGRATION.md</code>: core →
+            node → react → store. Package READMEs are the API source of truth.
           </p>
         </div>
         <Link to="/login" className="ghost-link">
