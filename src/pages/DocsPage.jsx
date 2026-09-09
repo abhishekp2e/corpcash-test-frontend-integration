@@ -4,6 +4,7 @@ import { useState } from "react";
 const TABS = [
   { id: "guide", label: "Developer guide" },
   { id: "packages", label: "Packages" },
+  { id: "store", label: "RBAC Store" },
   { id: "integration", label: "Integration" },
   { id: "examples", label: "Examples" },
   { id: "reference", label: "API & flows" },
@@ -45,6 +46,12 @@ function GuideSection() {
           <strong>Default deny</strong> — missing permission or failed policy =
           403
         </li>
+        <li>
+          <strong>Persist roles, not policies</strong> —{" "}
+          <code>@corpcash/rbac-store</code> holds the role graph + subject
+          assignments in Postgres; <code>PolicyFn</code> /{" "}
+          <code>onDecision</code> stay in backend code
+        </li>
       </ol>
 
       <h3>The six RBAC concepts</h3>
@@ -65,7 +72,7 @@ function GuideSection() {
               </td>
               <td>Who?</td>
               <td>
-                JWT → user → <code>toSubject()</code>
+                JWT → user → <code>resolveSubject()</code> (store)
               </td>
               <td>
                 From <code>GET /me/authorization</code>
@@ -77,7 +84,8 @@ function GuideSection() {
               </td>
               <td>Access profile?</td>
               <td>
-                <code>rbac.config.js</code>
+                <code>rbac.config.js</code> seed →{" "}
+                <code>@corpcash/rbac-store</code> (Postgres)
               </td>
               <td>Displayed; drives permissions</td>
             </tr>
@@ -150,7 +158,8 @@ function GuideSection() {
             <tr>
               <td>Role definitions</td>
               <td>
-                Backend <code>rbac.config.js</code>
+                Postgres via <code>@corpcash/rbac-store</code> (seeded from{" "}
+                <code>rbac.config.js</code>)
               </td>
             </tr>
             <tr>
@@ -159,7 +168,14 @@ function GuideSection() {
             </tr>
             <tr>
               <td>Subject identity</td>
-              <td>Auth (JWT) → backend load user</td>
+              <td>JWT <code>sub</code> → <code>users.id</code></td>
+            </tr>
+            <tr>
+              <td>Subject → roles</td>
+              <td>
+                Postgres <code>rbac_assignments</code> via{" "}
+                <code>resolveSubject</code>
+              </td>
             </tr>
             <tr>
               <td>Effective permissions</td>
@@ -168,7 +184,7 @@ function GuideSection() {
             <tr>
               <td>Generic UI visibility</td>
               <td>
-                Frontend <code>can()</code> / <code>&lt;Can&gt;</code>
+                Frontend <code>useCan</code> / <code>&lt;Can&gt;</code>
               </td>
             </tr>
             <tr>
@@ -195,8 +211,9 @@ function PackagesSection() {
     <div className="docs-section">
       <h2>Library packages</h2>
       <p className="muted">
-        From the guide §3. Linked locally via <code>file:</code> under{" "}
-        <code>corpcash-rback/packages</code>.
+        Installed from npm at <code>^0.3.0</code>:{' '}
+        <code>@corpcash/rbac-core</code>, <code>rbac-node</code>,{' '}
+        <code>rbac-store</code>, <code>rbac-react</code>.
       </p>
 
       <article className="docs-card">
@@ -228,18 +245,52 @@ function PackagesSection() {
         <h3>
           <code>@corpcash/rbac-node</code>
         </h3>
-        <p>Express middleware and NestJS guards. This POC uses Express.</p>
+        <p>Express middleware, NestJS guards, and the admin router.</p>
         <ul className="bullet-list">
           <li>
-            <code>createRBAC(config)</code>
+            <code>createRBAC(config)</code> or store-backed engine
           </li>
           <li>
             <code>
               createExpressMiddleware({`{ rbac, getSubject }`}) → authorize()
             </code>
           </li>
+          <li>
+            <code>createRbacAdminRouter({`{ store, rbac }`}) → /rbac/*</code>{" "}
+            (requires <code>rbac:manage</code>)
+          </li>
           <li>401 if no subject · 403 if denied</li>
         </ul>
+      </article>
+
+      <article className="docs-card">
+        <h3>
+          <code>@corpcash/rbac-store</code>
+        </h3>
+        <p>
+          Persists the <strong>serializable</strong> role graph (roles,
+          inheritance, <code>strictRoles</code>, subject → roles) in Postgres /
+          MySQL / Mongo. The decision engine stays in memory.
+        </p>
+        <ul className="bullet-list">
+          <li>
+            <code>postgresStore({`{ pool | connectionString }`})</code>
+          </li>
+          <li>
+            <code>migrate()</code> / <code>seed(config)</code>
+          </li>
+          <li>
+            <code>createRBACFromStore(store)</code> →{" "}
+            <code>@corpcash/rbac-core</code> engine
+          </li>
+          <li>
+            Admin writes call <code>reloadFromStore</code> automatically
+          </li>
+        </ul>
+        <p className="muted small">
+          Policies are <strong>not</strong> stored — register them in code after
+          loading the engine.
+        </p>
       </article>
 
       <article className="docs-card">
@@ -249,7 +300,6 @@ function PackagesSection() {
         <p>
           Client adapter: <code>RBACProvider</code>, <code>Can</code>,{" "}
           <code>useCan</code>, <code>RequirePermission</code>,{" "}
-          <code>RequireRole</code> from <code>@corpcash/rbac-react</code>.
           <code>RequireRole</code>.
         </p>
         <p className="muted small">
@@ -260,11 +310,145 @@ function PackagesSection() {
       </article>
 
       <h3>Install</h3>
-      <Code>{`# Backend — authoritative packages
-npm install @corpcash/rbac-core @corpcash/rbac-node
+      <Code>{`# Backend
+npm install @corpcash/rbac-core@^0.3.0 @corpcash/rbac-node@^0.3.0 @corpcash/rbac-store@^0.3.0 pg
 
-# Frontend — UX helpers only (pulls core transitively; do not depend on core directly)
-npm install @corpcash/rbac-react`}</Code>
+# Frontend — UX helpers only (do not depend on core/store directly)
+npm install @corpcash/rbac-react@^0.3.0`}</Code>
+    </div>
+  );
+}
+
+function StoreSection() {
+  return (
+    <div className="docs-section">
+      <h2>@corpcash/rbac-store flow</h2>
+      <p className="muted">
+        Guide §3 store package + this POC’s Postgres wiring (
+        <code>DATABASE_URL</code>).
+      </p>
+
+      <h3>What lives where</h3>
+      <div className="table-wrap">
+        <table className="policy-table">
+          <thead>
+            <tr>
+              <th>In the database</th>
+              <th>Stays in application code</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Role names, permissions, inherits</td>
+              <td>
+                <code>PolicyFn</code> (<code>registerPolicyFor</code>)
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>strictRoles</code>
+              </td>
+              <td>
+                <code>onDecision</code>
+              </td>
+            </tr>
+            <tr>
+              <td>Subject id → role names</td>
+              <td>
+                JWT auth, <code>getSubject</code>, <code>getResource</code>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Boot sequence (this POC)</h3>
+      <Code>{`1. postgresStore({ pool })           // share app DATABASE_URL pool
+2. store.migrate()                   // rbac_roles, rbac_assignments, rbac_settings
+3. store.seed({ roles })             // from rbac.config.js (no-op if roles exist)
+4. createRBACFromStore(store)        // in-memory @corpcash/rbac-core engine
+5. registerPolicyFor(...)            // policies stay in code
+6. createRbacAdminRouter(...)        // mount at /rbac
+7. On register: store.setRolesForSubject(userId, [role])`}</Code>
+
+      <h3>Postgres tables</h3>
+      <ul className="bullet-list">
+        <li>
+          <code>rbac_roles</code> — name, permissions, inherits
+        </li>
+        <li>
+          <code>rbac_assignments</code> — subject_id ↔ role_name
+        </li>
+        <li>
+          <code>rbac_settings</code> — strictRoles
+        </li>
+      </ul>
+
+      <h3>Admin API (requires rbac:manage)</h3>
+      <div className="table-wrap">
+        <table className="policy-table">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Path</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>GET / POST</td>
+              <td>
+                <code>/rbac/roles</code>
+              </td>
+            </tr>
+            <tr>
+              <td>GET / PUT / DELETE</td>
+              <td>
+                <code>/rbac/roles/:name</code>
+              </td>
+            </tr>
+            <tr>
+              <td>GET / PUT / POST</td>
+              <td>
+                <code>/rbac/subjects/:id/roles</code>
+              </td>
+            </tr>
+            <tr>
+              <td>DELETE</td>
+              <td>
+                <code>/rbac/subjects/:id/roles/:role</code>
+              </td>
+            </tr>
+            <tr>
+              <td>GET / PATCH</td>
+              <td>
+                <code>/rbac/settings</code>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small">
+        After a role-graph write, the admin router calls{" "}
+        <code>reloadFromStore(rbac, store)</code>. Assignment changes apply on
+        the next request without a reload. Use the dashboard{" "}
+        <strong>Interactive Admin API</strong> panel (admin users) to try these
+        live.
+      </p>
+
+      <h3>Frontend after store edits</h3>
+      <ol className="bullet-list">
+        <li>
+          Admin mutates roles via <code>/rbac/*</code>
+        </li>
+        <li>
+          Affected users call <code>GET /me/authorization</code> again (Refresh
+          session)
+        </li>
+        <li>
+          <code>RBACProvider</code> receives new <code>permissions[]</code> —
+          UI gates update
+        </li>
+      </ol>
     </div>
   );
 }
@@ -274,96 +458,80 @@ function IntegrationSection() {
     <div className="docs-section">
       <h2>Integration guide</h2>
       <p className="muted">
-        Guide §4–5 adapted to this POC (
-        <code>backend-integration</code> + <code>frontend-integration</code>).
-        Demo guide uses <code>x-user-id</code>; this app uses{" "}
-        <strong>JWT Bearer</strong> auth.
+        Guide §4–5 adapted to this POC. Auth is <strong>JWT Bearer</strong>;
+        roles persist via <code>@corpcash/rbac-store</code> + Postgres.
       </p>
 
       <h3>Repo layout (this stack)</h3>
-      <Code>{`feature-poc/
-├── corpcash-rback/                 # @corpcash/rbac-* packages
-└── rback-check/
-    ├── backend-integration/        # Express :3000 (authoritative)
-    │   ├── rbac.config.js          # roles, RESOURCES, ACTIONS
-    │   ├── auth.js                 # JWT register/login
-    │   └── index.js                # authorize + /me/authorization
-    └── frontend-integration/       # React :5173 (UX only)
-        ├── AuthContext.jsx         # loads /me/authorization
-        └── pages/DocsPage.jsx      # this guide`}</Code>
+      <Code>{`rback-check/
+├── backend-integration/     # Express :3000  (@corpcash/rbac-core/node/store ^0.3.0)
+│   ├── rbac.config.js       # seed catalog (RESOURCES, ACTIONS, roles)
+│   ├── rbac.js              # store migrate/seed + policies + admin router
+│   ├── auth.js              # JWT register/login
+│   ├── db.js                # DATABASE_URL pool
+│   └── index.js             # routes + /rbac mount
+└── frontend-integration/    # React :5173  (@corpcash/rbac-react ^0.3.0)
+    ├── AuthContext.jsx      # GET /me/authorization
+    ├── components/AdminApiPanel.jsx
+    └── pages/DocsPage.jsx`}</Code>
 
-      <h3>1. Backend catalog</h3>
+      <h3>1. Seed catalog → store</h3>
       <p>
-        Roles & permissions live only in <code>rbac.config.js</code> (RESOURCES /
-        ACTIONS / PERMISSIONS catalog).
+        <code>rbac.config.js</code> defines the initial graph. On boot it is
+        seeded into Postgres (idempotent). Live edits go through{" "}
+        <code>/rbac</code>, not the file.
       </p>
-      <Code>{`roles: {
-  viewer:    { permissions: ["wallet:read", "transaction:read", …] },
-  developer: { inherits: ["viewer"], permissions: ["wallet:create", …] },
-  manager:   { inherits: ["developer"], permissions: ["wallet:delete", …] },
-  admin:     { permissions: ["*:*"] },
-}`}</Code>
+      <Code>{`const store = postgresStore({ pool });
+await store.migrate();
+await store.seed({ roles: rbacConfig.roles }); // no-op if roles exist
+const rbac = await createRBACFromStore(store, { onDecision });
+rbac.registerPolicyFor("wallet", "delete", ownershipPolicy);`}</Code>
 
-      <h3>2. Subject: JWT → Subject</h3>
-      <Code>{`// Production pattern from the guide (this POC implements it)
-function resolveUser(req) {
-  const claims = verifyJwt(req.headers.authorization);
-  return {
-    id: claims.sub,
-    roles: claims.roles,
-    attributes: { /* org, dept, … */ },
-  };
-}
+      <h3>2. Subject: JWT → store roles</h3>
+      <Code>{`// loadUser after JWT verify
+const user = await findUserById(claims.sub);
+req.subject = await resolveSubject(user);
+// → { id, roles: store.getRolesForSubject(id), attributes }
 
-const { authorize } = createExpressMiddleware({
-  rbac,
-  getSubject: (req) => req.subject ?? null,
-});`}</Code>
+app.use("/rbac", requireAuth, loadUser, createRbacAdminRouter({
+  store, rbac, getSubject: (req) => req.subject,
+}));`}</Code>
 
       <h3>3. Frontend bootstrap</h3>
-      <p>
-        After login, <code>AuthProvider</code> calls{" "}
-        <code>GET /api/me/authorization</code> (Vite proxy → backend :3000).
-      </p>
-      <Code>{`AuthProvider → GET /me/authorization (Bearer token)
-         ← subject, roles, permissions, capabilities, user
-UI gates ← useCan("wallet", "create") via @corpcash/rbac-react`}</Code>
+      <Code>{`AuthProvider → GET /me/authorization (Bearer)
+         ← subject, roles, permissions, capabilities
+ProtectedRoute → RBACProvider(subject, permissions)
+UI ← useCan / Can / RequireRole  (+ AdminApiPanel for /rbac)`}</Code>
 
       <h3>4. Two types of frontend authorization</h3>
       <article className="docs-card">
         <h3>Type A — Generic UI (permission-only)</h3>
-        <p>
-          Not tied to a specific record. Use <code>@corpcash/rbac-react</code>{" "}
-          <code>Can</code> / <code>useCan</code> with effective{" "}
-          <code>permissions[]</code>.
-        </p>
         <Code>{`<Can resource="wallet" action="create">
   <button>Create Wallet</button>
 </Can>
-
 const canDeploy = useCan("contract", "deploy");`}</Code>
       </article>
 
       <article className="docs-card">
         <h3>Type B — Instance-level UI (policy-aware)</h3>
         <p>
-          Ownership / org / amount rules. Fetch backend-computed capabilities —
-          <strong> do not</strong> reimplement policies in React.
+          Use backend <code>/…/capabilities</code> for ownership/org/amount —
+          never reimplement policies in React.
         </p>
-        <Code>{`// Guide pattern (full demo)
-GET /wallets/:id/capabilities
-→ { capabilities: { delete: { allowed, reason, matchedPermission } } }
-
-// This POC today: flat capability map on /me/authorization
-// (permission-level). Add per-resource /capabilities when you store instances.`}</Code>
       </article>
 
       <h3>Local run</h3>
-      <Code>{`# Terminal 1 — backend
-cd rback-check/backend-integration && npm run dev   # :3000
+      <Code>{`# Terminal 1
+cd rback-check/backend-integration
+cp -n .env.example .env   # DATABASE_URL=postgresql://postgres:root@localhost:5432/postgres
+npm install && npm run dev   # :3000
 
-# Terminal 2 — frontend
-cd rback-check/frontend-integration && npm run dev  # :5173`}</Code>
+# Terminal 2
+cd rback-check/frontend-integration
+cp -n .env.example .env   # VITE_API_URL=http://localhost:3000
+npm install && npm run dev   # :5173
+
+# UI calls VITE_API_URL directly (CORS). Vite /api proxy is unused.`}</Code>
     </div>
   );
 }
@@ -399,11 +567,27 @@ rbac.authorize({
 });
 // → { allowed: true, reason: "AUTHORIZED", matchedPermission: "wallet:delete" }`}</Code>
 
-      <h3>Node — Express guards</h3>
-      <Code>{`import { createRBAC } from "@corpcash/rbac-node";
-import { createExpressMiddleware } from "@corpcash/rbac-node/express";
+      <h3>Store — Postgres persist + admin router</h3>
+      <Code>{`import { createRBACFromStore } from "@corpcash/rbac-store";
+import { postgresStore } from "@corpcash/rbac-store/postgres";
+import { createRbacAdminRouter } from "@corpcash/rbac-node/express";
 
-const rbac = createRBAC(rbacConfig);
+const store = postgresStore({ pool }); // or { connectionString: DATABASE_URL }
+await store.migrate();
+await store.seed({ roles: rbacConfig.roles });
+
+const rbac = await createRBACFromStore(store, { onDecision });
+rbac.registerPolicyFor("wallet", "delete", ownershipPolicy);
+
+app.use("/rbac", requireAuth, loadUser, createRbacAdminRouter({
+  store,
+  rbac,
+  getSubject: (req) => req.subject,
+}));`}</Code>
+
+      <h3>Node — Express route guards</h3>
+      <Code>{`import { createExpressMiddleware } from "@corpcash/rbac-node/express";
+
 const { authorize } = createExpressMiddleware({
   rbac,
   getSubject: (req) => req.subject ?? null,
@@ -484,33 +668,51 @@ Authorization: Bearer <token>
 }`}</Code>
 
       <h3>Instance capabilities (guide pattern)</h3>
-      <Code>{`GET /wallets/wallet_1/capabilities
+      <Code>{`GET /wallets/wallet_2/capabilities   # ownerId is "2"
+Authorization: Bearer <jwt>
 
 {
-  "resource": { "type": "wallet", "id": "wallet_1", "ownerId": "dev-1" },
+  "resource": { "type": "wallet", "id": "wallet_2", "ownerId": "2" },
   "capabilities": {
-    "read":   { "allowed": true,  "reason": "AUTHORIZED", … },
-    "delete": { "allowed": false, "reason": "POLICY_DENIED", … }
+    "read":   { "allowed": true,  "reason": "AUTHORIZED", "matchedPermission": "wallet:read" },
+    "delete": { "allowed": false, "reason": "POLICY_DENIED", "matchedPermission": "wallet:delete" }
   }
 }`}</Code>
 
-      <h3>Auth endpoints (this POC)</h3>
+      <h3>Auth + resource + admin endpoints (this POC, :3000)</h3>
       <ul className="bullet-list">
         <li>
-          <code>POST /auth/register</code> — username, password, role
+          <code>POST /auth/register</code> / <code>POST /auth/login</code> —
+          Bearer JWT; roles written/read from the store
         </li>
         <li>
-          <code>POST /auth/login</code> — returns JWT
+          <code>GET /auth/roles</code> — <code>store.listRoles()</code>
         </li>
         <li>
-          <code>GET /auth/roles</code> — roles for registration UI
-        </li>
-        <li>
-          <code>GET /me/authorization</code> — permissions + capabilities
+          <code>GET /me/authorization</code> — Type A capabilities
         </li>
         <li>
           <code>GET /dashboard</code> —{" "}
           <code>authorize(dashboard, read)</code>
+        </li>
+        <li>
+          <code>GET/POST /wallets</code>,{" "}
+          <code>DELETE /wallets/:id</code>,{" "}
+          <code>GET /wallets/:id/capabilities</code>
+        </li>
+        <li>
+          <code>GET /transactions</code>,{" "}
+          <code>POST /transactions/:id/approve</code>,{" "}
+          <code>GET /transactions/:id/capabilities</code>
+        </li>
+        <li>
+          <code>POST /contracts/deploy</code>
+        </li>
+        <li>
+          <code>POST /rbac/authorize</code> — debug (any authenticated user)
+        </li>
+        <li>
+          <code>/rbac/*</code> — store admin API (<code>rbac:manage</code>)
         </li>
       </ul>
 
@@ -542,11 +744,17 @@ Even if the UI shows Delete, the API re-checks — never trust the client.`}</Co
       <h3>Production checklist (guide §7)</h3>
       <ul className="bullet-list">
         <li>
-          Demo <code>x-user-id</code> → production JWT / session (this POC already
-          uses JWT)
+          Auth is already JWT Bearer; keep roles in the store, not in the token
         </li>
-        <li>Role definitions: backend only (file or DB)</li>
-        <li>Policies: backend code only</li>
+        <li>
+          Role definitions: <code>@corpcash/rbac-store</code> (Postgres) —
+          seeded from <code>rbac.config.js</code>
+        </li>
+        <li>Policies: backend code only — never persist</li>
+        <li>
+          Live role edits: <code>/rbac</code> then refresh{" "}
+          <code>/me/authorization</code>
+        </li>
         <li>
           Frontend: <code>/me/authorization</code> after login
         </li>
@@ -562,6 +770,7 @@ Even if the UI shows Delete, the API re-checks — never trust the client.`}</Co
 const SECTIONS = {
   guide: GuideSection,
   packages: PackagesSection,
+  store: StoreSection,
   integration: IntegrationSection,
   examples: ExamplesSection,
   reference: ReferenceSection,
@@ -578,9 +787,9 @@ export default function DocsPage() {
           <p className="eyebrow">Corpcash RBAC</p>
           <h1>Documentation</h1>
           <p className="muted">
-            Aligned with{" "}
-            <code>BACKEND_FRONTEND_INTEGRATION.md</code> — packages, six
-            concepts, Type A/B UI, APIs, flows, and this POC’s JWT wiring.
+            Aligned with <code>BACKEND_FRONTEND_INTEGRATION.md</code> — including{" "}
+            <code>@corpcash/rbac-store</code> Postgres persistence and the{" "}
+            <code>/rbac</code> admin API.
           </p>
         </div>
         <Link to="/login" className="ghost-link">

@@ -9,7 +9,9 @@ import AccessDeniedPage from "./pages/AccessDeniedPage";
  * inheritance graph), so a developer is denied on /roles/manager and /roles/viewer.
  */
 export function RequireRole({ requiredRole, children }) {
-  const { user } = useAuth();
+  const { user, subject } = useAuth();
+  const currentRole =
+    subject?.roles?.join(", ") || user?.roles?.join(", ") || user?.role;
 
   return (
     <RbacRequireRole
@@ -17,7 +19,7 @@ export function RequireRole({ requiredRole, children }) {
       fallback={
         <AccessDeniedPage
           requiredRole={requiredRole}
-          currentRole={user?.role}
+          currentRole={currentRole}
         />
       }
     >

@@ -10,7 +10,12 @@ export function AuthProvider({ children }) {
 
   const loadAuthorization = useCallback(async () => {
     const authz = await api.authorization();
-    setUser(authz.user);
+    const roles = authz.subject?.roles ?? authz.roles ?? [];
+    setUser({
+      ...authz.user,
+      role: roles[0] ?? authz.user?.role,
+      roles,
+    });
     setAuthorization(authz);
     return authz;
   }, []);
@@ -78,8 +83,9 @@ export function AuthProvider({ children }) {
       login,
       register,
       logout,
+      refreshAuthorization: loadAuthorization,
     }),
-    [user, authorization, loading, login, register, logout],
+    [user, authorization, loading, login, register, logout, loadAuthorization],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

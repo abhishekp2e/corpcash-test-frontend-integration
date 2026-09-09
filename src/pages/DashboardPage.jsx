@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Can, useCan } from "@corpcash/rbac-react";
+import AdminApiPanel from "../components/AdminApiPanel";
+import ResourceApiPanel from "../components/ResourceApiPanel";
 import { api } from "../api";
 import { useAuth } from "../AuthContext";
 import { runPolicyScenarios } from "../policyExamples";
 import { ROLE_NAV } from "./roles/roleContent";
 
 export default function DashboardPage() {
-  const { user, permissions, capabilities, logout } = useAuth();
+  const { user, permissions, capabilities, subject, logout } = useAuth();
+  const displayRoles = subject?.roles ?? user?.roles ?? (user?.role ? [user.role] : []);
+  const primaryRole = displayRoles[0];
   const navigate = useNavigate();
   const [message, setMessage] = useState("");
 
@@ -33,8 +37,14 @@ export default function DashboardPage() {
           <p className="eyebrow">Dashboard</p>
           <h1>{user?.username}</h1>
           <p className="muted">
-            Role: <strong>{user?.role}</strong>
-            {user?.role === "viewer" ? " (reader)" : null}
+            Roles: <strong>{displayRoles.join(", ") || "—"}</strong>
+            {primaryRole === "viewer" ? " (reader)" : null}
+            {user?.id != null ? (
+              <>
+                {" "}
+                · subject <code>{String(user.id)}</code>
+              </>
+            ) : null}
           </p>
         </div>
         <button
@@ -71,6 +81,10 @@ export default function DashboardPage() {
         </div>
       </section>
 
+      <ResourceApiPanel />
+
+      <AdminApiPanel userId={user?.id} />
+
       {/* Always show all role links so you can click and hit RequireRole */}
       <section className="panel">
         <h2>Role pages</h2>
@@ -85,11 +99,11 @@ export default function DashboardPage() {
               key={role}
               to={path}
               className={
-                user?.role === role ? "role-nav-link current" : "role-nav-link"
+                displayRoles.includes(role) ? "role-nav-link current" : "role-nav-link"
               }
             >
               {label}
-              {user?.role === role ? " · yours" : ""}
+              {displayRoles.includes(role) ? " · yours" : ""}
             </Link>
           ))}
         </nav>
@@ -107,8 +121,8 @@ export default function DashboardPage() {
       <section className="panel">
         <h2>Role-based UI elements</h2>
         <p className="muted small">
-          Panels below use <code>Can</code> / <code>useCan</code> from{" "}
-          <code>@corpcash/rbac-react</code>.
+          Type A only (<code>Can</code> / <code>useCan</code>). Live Type B
+          calls are in <strong>Resource APIs</strong> above.
         </p>
 
         <div className="gated-grid">
